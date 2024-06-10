@@ -1,0 +1,55 @@
+name: Save Docker Image to Branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      docker_image:
+        description: 'Docker image to pull'
+        required: true
+        default: 'nginx:latest'
+
+jobs:
+  save-image:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write  
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}  
+
+    - name: Set up Docker
+      uses: docker/setup-buildx-action@v2
+
+    - name: Pull Docker image
+      run: docker pull ${{ github.event.inputs.docker_image }}
+
+    - name: Save Docker image to tar file
+      run: docker save -o image.tar ${{ github.event.inputs.docker_image }}
+
+    - name: Set up Git LFS
+      run: |
+        git lfs install
+        git lfs track "*.tar"
+
+    - name: Set Git user
+      run: |
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git config --global user.name "github-actions[bot]"
+
+    - name: Create branch and commit Docker image
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Clean and transform the docker image name to a valid branch name
+        branch_name=$(echo "${{ github.event.inputs.docker_image }}" | tr ':/. ' '-')
+        git checkout --orphan "$branch_name"
+        git rm -rf .
+        mv image.tar "$branch_name.tar"
+        git add .gitattributes
+        git add "$branch_name.tar"
+        git commit -m "Add Docker image ${{ github.event.inputs.docker_image }}"
+        git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" "$branch_name" --force
